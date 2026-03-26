@@ -1,8 +1,6 @@
 use reqwest_rate_limit::{ResponseMiddleware, governor::Quota};
-use std::{
-    num::NonZeroU32,
-    sync::{Arc, Mutex},
-};
+use std::num::NonZeroU32;
+use std::sync::{Arc, Mutex};
 
 // Track only the high-level state needed to choose the next wait strategy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -207,6 +205,8 @@ impl ResponseMiddleware for RateLimitResponseMiddleware {
 }
 
 fn main() {
+    let middleware = RateLimitResponseMiddleware::default();
+
     // Primary rate limit for authenticated users is 5,000 requests per hour.
     let rate_limiter =
         governor::RateLimiter::direct(Quota::per_hour(NonZeroU32::new(5_000).unwrap()));
@@ -216,11 +216,12 @@ fn main() {
         .user_agent("reqwest-rate-limit-example")
         .build()
         .unwrap();
-    // Wrap the reqwest client with the rate-limit-aware client.
-    let client = reqwest_rate_limit::Client::builder().attach_client(reqwest_client);
-
     // Example request wired with the primary rate limiter.
-    let _request = client
-        .get("https://api.github.com/rate_limit")
-        .with_rate_limiter(rate_limiter);
+    let request = reqwest_client.get("https://api.github.com/rate_limit");
+    // Send this in an async context and await the returned future.
+    let _send = reqwest_rate_limit::send_with_rate_limiter_and_middleware(
+        request,
+        &rate_limiter,
+        &middleware,
+    );
 }

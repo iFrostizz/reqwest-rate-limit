@@ -1,4 +1,4 @@
-use crate::reqwest_wrapper::middleware::{NoopResponseMiddleware, ResponseMiddleware};
+use crate::{ResponseMiddleware, reqwest_wrapper::client::Client};
 use governor::Jitter;
 use std::time::Duration;
 
@@ -6,31 +6,27 @@ use std::time::Duration;
 pub struct RequestBuilder<MW>
 where
     MW: ResponseMiddleware + Clone,
-    MW::Error: From<reqwest::Error>,
 {
-    pub(crate) client: crate::Client,
+    pub(crate) client: Client<MW>,
     pub(crate) inner: reqwest::RequestBuilder,
     pub(crate) response_middleware: MW,
     pub(crate) rate_limiter: Option<governor::DefaultDirectRateLimiter>,
 }
 
-impl RequestBuilder<NoopResponseMiddleware> {
-    pub fn from_parts(client: crate::Client, request: reqwest::Request) -> Self {
-        let inner = reqwest::RequestBuilder::from_parts(client.inner().clone(), request);
-        Self {
-            client,
-            inner,
-            response_middleware: NoopResponseMiddleware,
-            rate_limiter: None,
-        }
-    }
-}
-
 impl<MW> RequestBuilder<MW>
 where
     MW: ResponseMiddleware + Clone,
-    MW::Error: From<reqwest::Error>,
 {
+    pub(crate) fn from_parts(client: Client<MW>, inner: reqwest::RequestBuilder) -> Self {
+        let response_middleware = client.middleware().clone();
+        Self {
+            client,
+            inner,
+            response_middleware,
+            rate_limiter: None,
+        }
+    }
+
     pub fn with_rate_limiter(self, rate_limiter: governor::DefaultDirectRateLimiter) -> Self {
         Self {
             rate_limiter: Some(rate_limiter),
@@ -114,10 +110,6 @@ where
         self.inner.build()
     }
 
-    pub fn build_split(self) -> (crate::Client, reqwest::Result<reqwest::Request>) {
-        (self.client, self.inner.build())
-    }
-
     pub async fn send(self) -> Result<reqwest::Response, MW::Error> {
         if let Some(rate_limiter) = &self.rate_limiter {
             rate_limiter
@@ -133,9 +125,8 @@ where
         Some(Self {
             client: self.client.clone(),
             inner,
-            // rate_limiter: self.rate_limiter.map(|r| r),
             response_middleware: self.response_middleware.clone(),
-            rate_limiter: None, // TODO
+            rate_limiter: None, // rate limiters aren't cloneable
         })
     }
 }
