@@ -1,21 +1,47 @@
+use crate::reqwest_wrapper::middleware::{NoopResponseMiddleware, ResponseMiddleware};
+use governor::Jitter;
 use std::time::Duration;
 
 #[derive(Debug)]
-pub struct RequestBuilder {
+pub struct RequestBuilder<MW>
+where
+    MW: ResponseMiddleware + Clone,
+    MW::Error: From<reqwest::Error>,
+{
     pub(crate) client: crate::Client,
     pub(crate) inner: reqwest::RequestBuilder,
+    pub(crate) response_middleware: MW,
+    pub(crate) rate_limiter: Option<governor::DefaultDirectRateLimiter>,
 }
 
-impl RequestBuilder {
+impl RequestBuilder<NoopResponseMiddleware> {
     pub fn from_parts(client: crate::Client, request: reqwest::Request) -> Self {
         let inner = reqwest::RequestBuilder::from_parts(client.inner().clone(), request);
-        Self { client, inner }
+        Self {
+            client,
+            inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
+        }
+    }
+}
+
+impl<MW> RequestBuilder<MW>
+where
+    MW: ResponseMiddleware + Clone,
+    MW::Error: From<reqwest::Error>,
+{
+    pub fn with_rate_limiter(self, rate_limiter: governor::DefaultDirectRateLimiter) -> Self {
+        Self {
+            rate_limiter: Some(rate_limiter),
+            ..self
+        }
     }
 
-    pub fn header<K, V>(self, key: K, value: V) -> Self
+    pub fn header<KK, V>(self, key: KK, value: V) -> Self
     where
-        http::HeaderName: TryFrom<K>,
-        <http::HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        http::HeaderName: TryFrom<KK>,
+        <http::HeaderName as TryFrom<KK>>::Error: Into<http::Error>,
         http::HeaderValue: TryFrom<V>,
         <http::HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
     {
@@ -92,9 +118,14 @@ impl RequestBuilder {
         (self.client, self.inner.build())
     }
 
-    pub async fn send(self) -> reqwest::Result<reqwest::Response> {
-        // TODO intercept the response and check if it's rate limited in the headers.
-        self.inner.send().await
+    pub async fn send(self) -> Result<reqwest::Response, MW::Error> {
+        if let Some(rate_limiter) = &self.rate_limiter {
+            rate_limiter
+                .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(20)))
+                .await;
+        }
+        let res = self.inner.send().await;
+        self.response_middleware.on_response(res)
     }
 
     pub fn try_clone(&self) -> Option<Self> {
@@ -102,6 +133,9 @@ impl RequestBuilder {
         Some(Self {
             client: self.client.clone(),
             inner,
+            // rate_limiter: self.rate_limiter.map(|r| r),
+            response_middleware: self.response_middleware.clone(),
+            rate_limiter: None, // TODO
         })
     }
 }

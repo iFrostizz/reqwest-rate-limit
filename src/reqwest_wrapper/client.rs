@@ -1,5 +1,7 @@
 //! Wrapper client for [reqwest::Client]
 
+use crate::{RequestBuilder, reqwest_wrapper::middleware::NoopResponseMiddleware};
+
 #[derive(Debug, Clone)]
 pub struct Client {
     inner: reqwest::Client,
@@ -10,51 +12,63 @@ impl Client {
         ClientBuilder::new()
     }
 
-    pub fn get<U: reqwest::IntoUrl>(&self, url: U) -> crate::RequestBuilder {
+    pub fn get<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.get(url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
-    pub fn post<U: reqwest::IntoUrl>(&self, url: U) -> crate::RequestBuilder {
+    pub fn post<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.post(url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
-    pub fn put<U: reqwest::IntoUrl>(&self, url: U) -> crate::RequestBuilder {
+    pub fn put<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.put(url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
-    pub fn patch<U: reqwest::IntoUrl>(&self, url: U) -> crate::RequestBuilder {
+    pub fn patch<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.patch(url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
-    pub fn delete<U: reqwest::IntoUrl>(&self, url: U) -> crate::RequestBuilder {
+    pub fn delete<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.delete(url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
-    pub fn head<U: reqwest::IntoUrl>(&self, url: U) -> crate::RequestBuilder {
+    pub fn head<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.head(url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
@@ -62,20 +76,18 @@ impl Client {
         &self,
         method: reqwest::Method,
         url: U,
-    ) -> crate::RequestBuilder {
+    ) -> RequestBuilder<NoopResponseMiddleware> {
         let inner = self.inner.request(method, url);
-        crate::RequestBuilder {
+        RequestBuilder {
             client: self.clone(),
             inner,
+            response_middleware: NoopResponseMiddleware,
+            rate_limiter: None,
         }
     }
 
-    pub async fn execute(&self, request: reqwest::Request) -> crate::Result<crate::Response> {
-        self.inner
-            .execute(request)
-            .await
-            .map_err(crate::Error)
-            .map(crate::Response)
+    pub async fn execute(&self, request: reqwest::Request) -> reqwest::Result<reqwest::Response> {
+        self.inner.execute(request).await
     }
 }
 
@@ -87,12 +99,18 @@ impl Client {
 
 pub struct ClientBuilder {}
 
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClientBuilder {
     pub fn new() -> Self {
         Self {}
     }
 
     pub fn attach_client(&self, client: reqwest::Client) -> Client {
-        todo!()
+        Client { inner: client }
     }
 }
