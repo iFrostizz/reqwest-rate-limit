@@ -1,0 +1,16 @@
+[package]
+name = "reqwest-rate-limit"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+governor = "0.10.4"
+reqwest = "0.13.2"
+http = "1.4.0"
+serde = { version = "1.0.228", features = ["derive"] }
+
+[features]
+multipart = ["reqwest/multipart"]
+query = ["reqwest/query"]
+form = ["reqwest/form"]
+json = ["reqwest/json"]
