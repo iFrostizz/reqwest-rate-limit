@@ -1,6 +1,8 @@
 use reqwest_rate_limit::{ResponseMiddleware, governor::Quota};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::time::sleep;
 
 // Track only the high-level state needed to choose the next wait strategy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,6 +20,7 @@ pub struct RateLimitResponseMiddleware {
     max_secondary_retries: u32,
 }
 
+#[derive(Debug)]
 pub enum RateLimitError {
     Transport(reqwest::Error),
     /// You should not retry your request until after the time specified by the `x-ratelimit-reset` header.
@@ -75,6 +78,19 @@ impl RateLimitResponseMiddleware {
         let exp = attempt.saturating_sub(1).min(16);
         let backoff = Self::MIN_SECONDARY_WAIT_SECS.saturating_mul(1u64 << exp);
         backoff.min(Self::MAX_SECONDARY_BACKOFF_SECS)
+    }
+
+    fn sleep_until_epoch_seconds(epoch_seconds: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+        if epoch_seconds > now {
+            let wait = Duration::from_secs(epoch_seconds - now);
+            tokio::runtime::Handle::current().block_on(async {
+                sleep(wait).await;
+            });
+        }
     }
 
     /// Apply the error to the state machine and update it.
@@ -200,28 +216,56 @@ impl ResponseMiddleware for RateLimitResponseMiddleware {
             RateLimitError::Transport(_) => return Err(error),
         });
 
+        match error {
+            RateLimitError::PrimaryRateLimit { x_ratelimit_reset }
+            | RateLimitError::SecondaryRateLimitReset { x_ratelimit_reset } => {
+                Self::sleep_until_epoch_seconds(x_ratelimit_reset);
+            }
+            _ => {}
+        }
+
         Err(error)
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let middleware = RateLimitResponseMiddleware::default();
+    
+    // use the client without the wrapper
+    {
+        // Primary rate limit for authenticated users is 5,000 requests per hour.
+        let rate_limiter =
+            governor::RateLimiter::direct(Quota::per_hour(NonZeroU32::new(5_000).unwrap()));
 
-    // Primary rate limit for authenticated users is 5,000 requests per hour.
-    let rate_limiter =
-        governor::RateLimiter::direct(Quota::per_hour(NonZeroU32::new(5_000).unwrap()));
+        // GitHub REST API requires a User-Agent header.
+        let reqwest_client = reqwest::Client::builder()
+            .user_agent("reqwest-rate-limit-example")
+            .build()
+            .unwrap();
+        // Example request wired with the primary rate limiter.
+        let request = reqwest_client.get("https://api.github.com/rate_limit");
+        // Send this in an async context and await the returned future.
+        let _send = reqwest_rate_limit::send_with_rate_limiter_and_middleware(
+            request,
+            &rate_limiter,
+            &middleware,
+        );
+    }
 
-    // GitHub REST API requires a User-Agent header.
-    let reqwest_client = reqwest::Client::builder()
-        .user_agent("reqwest-rate-limit-example")
-        .build()
-        .unwrap();
-    // Example request wired with the primary rate limiter.
-    let request = reqwest_client.get("https://api.github.com/rate_limit");
-    // Send this in an async context and await the returned future.
-    let _send = reqwest_rate_limit::send_with_rate_limiter_and_middleware(
-        request,
-        &rate_limiter,
-        &middleware,
-    );
+    // use the client with the wrapper
+    {
+        let rate_limiter =
+            governor::RateLimiter::direct(Quota::per_hour(NonZeroU32::new(5_000).unwrap()));
+
+        let client = reqwest_rate_limit::Client::builder()
+            .user_agent("reqwest-rate-limit-example")
+            .response_middleware(middleware)
+            .rate_limiter(Arc::new(rate_limiter))
+            .build()
+            .unwrap();
+
+        let _req = client.get("https://github.com").send();
+        _req.await.unwrap();
+    }
 }

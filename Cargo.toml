@@ -11,6 +11,9 @@ reqwest = "0.13.2"
 http = "1.4.0"
 serde = { version = "1.0.228", features = ["derive"] }
 
+[dev-dependencies]
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
+
 [features]
 multipart = ["reqwest/multipart"]
 query = ["reqwest/query"]
