@@ -1,9 +1,12 @@
 [package]
 name = "reqwest-rate-limit"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Rate-limit aware request helpers and optional wrapper ergonomics for reqwest."
 license = "Apache-2.0"
+repository = "https://github.com/iFrostizz/reqwest-rate-limit"
+homepage = "https://github.com/iFrostizz/reqwest-rate-limit"
+documentation = "https://docs.rs/reqwest-rate-limit"
 
 [dependencies]
 governor = "0.10.4"
