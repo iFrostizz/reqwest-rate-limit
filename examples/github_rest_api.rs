@@ -231,7 +231,7 @@ impl ResponseMiddleware for RateLimitResponseMiddleware {
 #[tokio::main]
 async fn main() {
     let middleware = RateLimitResponseMiddleware::default();
-    
+
     // use the client without the wrapper
     {
         // Primary rate limit for authenticated users is 5,000 requests per hour.
@@ -246,11 +246,12 @@ async fn main() {
         // Example request wired with the primary rate limiter.
         let request = reqwest_client.get("https://api.github.com/rate_limit");
         // Send this in an async context and await the returned future.
-        let _send = reqwest_rate_limit::send_with_rate_limiter_and_middleware(
+        let req = reqwest_rate_limit::send_with_rate_limiter_and_middleware(
             request,
             &rate_limiter,
             &middleware,
         );
+        let _res = req.await.unwrap();
     }
 
     // use the client with the wrapper
@@ -265,7 +266,7 @@ async fn main() {
             .build()
             .unwrap();
 
-        let _req = client.get("https://github.com").send();
-        _req.await.unwrap();
+        let req = client.get("https://github.com").send();
+        let _res = req.await.unwrap();
     }
 }
