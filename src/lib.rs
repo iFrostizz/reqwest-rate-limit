@@ -57,7 +57,7 @@
 //! # ResponseMiddleware
 //!
 //! Implement `ResponseMiddleware` to inspect responses and apply rate-limit rules.
-//! The [GitHub REST API example](../examples/github_rest_api.rs) shows how to translate
+//! The `github_rest_api.rs` example shows how to translate
 //! `retry-after` headers into concrete waits and backoff behavior.
 //!
 //! # Features
