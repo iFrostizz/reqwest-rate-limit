@@ -80,16 +80,14 @@ impl RateLimitResponseMiddleware {
         backoff.min(Self::MAX_SECONDARY_BACKOFF_SECS)
     }
 
-    fn sleep_until_epoch_seconds(epoch_seconds: u64) {
+    async fn sleep_until_epoch_seconds(epoch_seconds: u64) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::from_secs(0))
             .as_secs();
         if epoch_seconds > now {
             let wait = Duration::from_secs(epoch_seconds - now);
-            tokio::runtime::Handle::current().block_on(async {
-                sleep(wait).await;
-            });
+            sleep(wait).await;
         }
     }
 
@@ -136,7 +134,7 @@ impl From<reqwest::Error> for RateLimitError {
 impl ResponseMiddleware for RateLimitResponseMiddleware {
     type Error = RateLimitError;
 
-    fn on_response(
+    async fn on_response(
         &self,
         response: reqwest::Result<reqwest::Response>,
     ) -> Result<reqwest::Response, Self::Error> {
@@ -156,70 +154,73 @@ impl ResponseMiddleware for RateLimitResponseMiddleware {
         let reset = Self::parse_header_u64(headers, "x-ratelimit-reset");
         let retry_after = Self::parse_header_u64(headers, "retry-after");
 
-        let mut state = self.state.lock().unwrap();
-        let prev_secondary_retries = match *state {
-            Some(RateLimitState::SecondaryRateLimit { retries }) => Some(retries),
-            _ => None,
-        };
+        let error = {
+            let mut state = self.state.lock().unwrap();
+            let prev_secondary_retries = match *state {
+                Some(RateLimitState::SecondaryRateLimit { retries }) => Some(retries),
+                _ => None,
+            };
 
-        // ResponseMiddleware is sync; we can't read the body to inspect the secondary-rate-limit message.
-        // Infer secondary using headers or prior secondary state.
-        let is_secondary = if prev_secondary_retries.is_some() || retry_after.is_some() {
-            true
-        } else {
-            remaining != Some(0)
-        };
+            // ResponseMiddleware is sync; we can't read the body to inspect the secondary-rate-limit message.
+            // Infer secondary using headers or prior secondary state.
+            let is_secondary = if prev_secondary_retries.is_some() || retry_after.is_some() {
+                true
+            } else {
+                remaining != Some(0)
+            };
 
-        let error = if !is_secondary {
-            // Primary limit: do not retry until x-ratelimit-reset.
-            RateLimitError::PrimaryRateLimit {
-                x_ratelimit_reset: reset.unwrap_or(0),
-            }
-        } else {
-            let attempt = prev_secondary_retries.unwrap_or(0).saturating_add(1);
-            if attempt > self.max_secondary_retries {
-                // Stop the loop after too many retries.
-                RateLimitError::SecondaryRateLimitExhausted { retries: attempt }
-            } else if attempt > 1 {
-                // Subsequent failures: exponential backoff.
-                let retry_after = Self::secondary_backoff_seconds(attempt);
-                RateLimitError::SecondaryRateLimitExponentialBackoff {
-                    retry_after,
-                    attempt,
-                }
-            } else if let Some(retry_after) = retry_after {
-                // Honor explicit Retry-After for secondary limits.
-                RateLimitError::SecondaryRateLimitRetryAfter { retry_after }
-            } else if remaining == Some(0) {
-                // If remaining is 0, use x-ratelimit-reset even for secondary.
-                RateLimitError::SecondaryRateLimitReset {
+            let error = if !is_secondary {
+                // Primary limit: do not retry until x-ratelimit-reset.
+                RateLimitError::PrimaryRateLimit {
                     x_ratelimit_reset: reset.unwrap_or(0),
                 }
             } else {
-                // Otherwise wait at least one minute.
-                RateLimitError::SecondaryRateLimitWait {
-                    retry_after: Self::MIN_SECONDARY_WAIT_SECS,
+                let attempt = prev_secondary_retries.unwrap_or(0).saturating_add(1);
+                if attempt > self.max_secondary_retries {
+                    // Stop the loop after too many retries.
+                    RateLimitError::SecondaryRateLimitExhausted { retries: attempt }
+                } else if attempt > 1 {
+                    // Subsequent failures: exponential backoff.
+                    let retry_after = Self::secondary_backoff_seconds(attempt);
+                    RateLimitError::SecondaryRateLimitExponentialBackoff {
+                        retry_after,
+                        attempt,
+                    }
+                } else if let Some(retry_after) = retry_after {
+                    // Honor explicit Retry-After for secondary limits.
+                    RateLimitError::SecondaryRateLimitRetryAfter { retry_after }
+                } else if remaining == Some(0) {
+                    // If remaining is 0, use x-ratelimit-reset even for secondary.
+                    RateLimitError::SecondaryRateLimitReset {
+                        x_ratelimit_reset: reset.unwrap_or(0),
+                    }
+                } else {
+                    // Otherwise wait at least one minute.
+                    RateLimitError::SecondaryRateLimitWait {
+                        retry_after: Self::MIN_SECONDARY_WAIT_SECS,
+                    }
                 }
-            }
-        };
+            };
 
-        *state = Some(match error {
-            RateLimitError::PrimaryRateLimit { .. } => RateLimitState::PrimaryRateLimit,
-            RateLimitError::SecondaryRateLimitRetryAfter { .. }
-            | RateLimitError::SecondaryRateLimitReset { .. }
-            | RateLimitError::SecondaryRateLimitWait { .. }
-            | RateLimitError::SecondaryRateLimitExponentialBackoff { .. }
-            | RateLimitError::SecondaryRateLimitExhausted { .. } => {
-                let retries = prev_secondary_retries.unwrap_or(0).saturating_add(1);
-                RateLimitState::SecondaryRateLimit { retries }
-            }
-            RateLimitError::Transport(_) => return Err(error),
-        });
+            *state = Some(match error {
+                RateLimitError::PrimaryRateLimit { .. } => RateLimitState::PrimaryRateLimit,
+                RateLimitError::SecondaryRateLimitRetryAfter { .. }
+                | RateLimitError::SecondaryRateLimitReset { .. }
+                | RateLimitError::SecondaryRateLimitWait { .. }
+                | RateLimitError::SecondaryRateLimitExponentialBackoff { .. }
+                | RateLimitError::SecondaryRateLimitExhausted { .. } => {
+                    let retries = prev_secondary_retries.unwrap_or(0).saturating_add(1);
+                    RateLimitState::SecondaryRateLimit { retries }
+                }
+                RateLimitError::Transport(_) => return Err(error),
+            });
+            error
+        };
 
         match error {
             RateLimitError::PrimaryRateLimit { x_ratelimit_reset }
             | RateLimitError::SecondaryRateLimitReset { x_ratelimit_reset } => {
-                Self::sleep_until_epoch_seconds(x_ratelimit_reset);
+                Self::sleep_until_epoch_seconds(x_ratelimit_reset).await;
             }
             _ => {}
         }

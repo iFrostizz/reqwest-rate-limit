@@ -14,7 +14,7 @@
 //!     NonZeroU32::new(5_000).unwrap(),
 //! )));
 //!
-//! let client = reqwest_rate_limit::Client::builder()
+//! let client = reqwest::Client::builder()
 //!     .user_agent("reqwest-rate-limit-docs")
 //!     .configure(|b| b.timeout(std::time::Duration::from_secs(30)))
 //!     .build()
@@ -40,7 +40,7 @@
 //! # let rate_limiter = Arc::new(governor::RateLimiter::direct(Quota::per_hour(
 //! #     NonZeroU32::new(5_000).unwrap(),
 //! # )));
-//! let client = reqwest_rate_limit::Client::builder()
+//! let client = reqwest::Client::builder()
 //!     .configure(|b| {
 //!         b.timeout(std::time::Duration::from_secs(10))
 //!          .pool_max_idle_per_host(8)
@@ -82,7 +82,7 @@ pub trait ResponseMiddleware {
     /// ```no_run
     /// struct Passthrough;
     ///
-    /// impl reqwest_rate_limit::ResponseMiddleware for Passthrough {
+    /// impl reqwest::ResponseMiddleware for Passthrough {
     ///     type Error = reqwest::Error;
     ///
     ///     fn on_response(
@@ -93,20 +93,20 @@ pub trait ResponseMiddleware {
     ///     }
     /// }
     /// ```
-    fn on_response(
+    async fn on_response(
         &self,
         response: reqwest::Result<reqwest::Response>,
     ) -> Result<reqwest::Response, Self::Error>;
 }
 
 /// Default middleware that returns the response unchanged.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct NoopResponseMiddleware;
 
 impl ResponseMiddleware for NoopResponseMiddleware {
     type Error = reqwest::Error;
 
-    fn on_response(
+    async fn on_response(
         &self,
         response: reqwest::Result<reqwest::Response>,
     ) -> Result<reqwest::Response, Self::Error> {
@@ -126,7 +126,7 @@ impl ResponseMiddleware for NoopResponseMiddleware {
 /// let client = reqwest::Client::new();
 /// let request = client.get("https://api.example.com/health");
 /// let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(5).unwrap()));
-/// let _response = reqwest_rate_limit::send_with_rate_limiter(request, &limiter).await?;
+/// let _response = reqwest::send_with_rate_limiter(request, &limiter).await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -148,7 +148,7 @@ pub async fn send_with_rate_limiter(
 ///
 /// struct Passthrough;
 ///
-/// impl reqwest_rate_limit::ResponseMiddleware for Passthrough {
+/// impl reqwest::ResponseMiddleware for Passthrough {
 ///     type Error = reqwest::Error;
 ///
 ///     fn on_response(
@@ -165,7 +165,7 @@ pub async fn send_with_rate_limiter(
 /// let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(5).unwrap()));
 /// let middleware = Passthrough;
 /// let _response =
-///     reqwest_rate_limit::send_with_rate_limiter_and_middleware(request, &limiter, &middleware)
+///     reqwest::send_with_rate_limiter_and_middleware(request, &limiter, &middleware)
 ///         .await?;
 /// # Ok(())
 /// # }
@@ -179,5 +179,5 @@ where
     MW: ResponseMiddleware,
 {
     let response = send_with_rate_limiter(request, rate_limiter).await;
-    middleware.on_response(response)
+    middleware.on_response(response).await
 }

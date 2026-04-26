@@ -12,7 +12,7 @@ fn main() {
     let mut default_headers = HeaderMap::new();
     default_headers.insert("accept", HeaderValue::from_static("application/json"));
 
-    let client = reqwest_rate_limit::Client::builder()
+    let client = reqwest::Client::builder()
         .user_agent("reqwest-rate-limit-wrapper-ergonomics")
         .default_headers(default_headers)
         .timeout(std::time::Duration::from_secs(30))

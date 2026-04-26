@@ -43,7 +43,7 @@ where
     ///     NonZeroU32::new(10).unwrap(),
     /// )));
     ///
-    /// let client = reqwest_rate_limit::Client::builder().build().unwrap();
+    /// let client = reqwest::Client::builder().build().unwrap();
     /// let _request = client
     ///     .get("https://api.example.com/health")
     ///     .with_rate_limiter(limiter);
@@ -67,7 +67,7 @@ where
     ///     NonZeroU32::new(10).unwrap(),
     /// ));
     ///
-    /// let client = reqwest_rate_limit::Client::builder().build().unwrap();
+    /// let client = reqwest::Client::builder().build().unwrap();
     /// let _request = client
     ///     .get("https://api.example.com/health")
     ///     .with_rate_limiter_owned(limiter);
@@ -173,19 +173,20 @@ where
     ///
     /// ```no_run
     /// # async fn example() -> Result<(), reqwest::Error> {
-    /// let client = reqwest_rate_limit::Client::builder().build().unwrap();
+    /// let client = reqwest::Client::builder().build().unwrap();
     /// let _response = client.get("https://api.example.com/health").send().await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn send(self) -> Result<reqwest::Response, MW::Error> {
         if let Some(rate_limiter) = &self.rate_limiter {
+            // TODO configurable
             rate_limiter
-                .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(20)))
+                .until_ready_with_jitter(Jitter::up_to(Duration::from_millis(50)))
                 .await;
         }
         let res = self.inner.send().await;
-        self.response_middleware.on_response(res)
+        self.response_middleware.on_response(res).await
     }
 
     /// Attempt to clone this builder for re-use.

@@ -109,9 +109,9 @@ where
     ///
     /// ```no_run
     /// let base = reqwest::Client::builder().https_only(true);
-    /// let client = reqwest_rate_limit::ClientBuilder::from_reqwest_builder(
+    /// let client = reqwest::ClientBuilder::from_reqwest_builder(
     ///     base,
-    ///     reqwest_rate_limit::NoopResponseMiddleware,
+    ///     reqwest::NoopResponseMiddleware,
     /// )
     /// .build()
     /// .unwrap();
@@ -129,7 +129,7 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// let client = reqwest_rate_limit::Client::builder()
+    /// let client = reqwest::Client::builder()
     ///     .configure(|b| b.timeout(std::time::Duration::from_secs(5)))
     ///     .build()
     ///     .unwrap();
@@ -170,7 +170,7 @@ where
     ///     NonZeroU32::new(60).unwrap(),
     /// )));
     ///
-    /// let client = reqwest_rate_limit::Client::builder()
+    /// let client = reqwest::Client::builder()
     ///     .rate_limiter(limiter)
     ///     .build()
     ///     .unwrap();
