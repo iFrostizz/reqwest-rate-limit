@@ -8,5 +8,5 @@ fn main() {
 
     let reqwest_client = reqwest::Client::new();
     let request = reqwest_client.get("https://api.website.com/");
-    let _send = reqwest::send_with_rate_limiter(request, &rate_limiter);
+    let _send = reqwest_rate_limit::send_with_rate_limiter(request, &rate_limiter);
 }

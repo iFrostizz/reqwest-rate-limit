@@ -1,4 +1,4 @@
-use reqwest_rate_limit::{ResponseMiddleware, governor::Quota};
+use reqwest_rate_limit::{ReqwestMiddleware, governor::Quota};
 use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -131,8 +131,12 @@ impl From<reqwest::Error> for RateLimitError {
     }
 }
 
-impl ResponseMiddleware for RateLimitResponseMiddleware {
+impl ReqwestMiddleware for RateLimitResponseMiddleware {
     type Error = RateLimitError;
+
+    async fn on_request(&self, _: &reqwest::RequestBuilder) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
     async fn on_response(
         &self,
@@ -262,7 +266,7 @@ async fn main() {
 
         let client = reqwest_rate_limit::Client::builder()
             .user_agent("reqwest-rate-limit-example")
-            .response_middleware(middleware)
+            .middleware(middleware)
             .rate_limiter(Arc::new(rate_limiter))
             .build()
             .unwrap();

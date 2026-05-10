@@ -1,24 +1,24 @@
-use crate::{NoopResponseMiddleware, RequestBuilder, ResponseMiddleware};
+use crate::{NoopReqwestMiddleware, RequestBuilder, ReqwestMiddleware};
 use std::sync::Arc;
 
 /// Wrapper client that exposes ergonomic request builders with rate limiting.
 #[derive(Debug, Clone)]
-pub struct Client<MW = NoopResponseMiddleware> {
+pub struct Client<MW = NoopReqwestMiddleware> {
     inner: reqwest::Client,
-    response_middleware: MW,
+    middleware: MW,
     rate_limiter: Option<Arc<governor::DefaultDirectRateLimiter>>,
 }
 
 impl Client {
     /// Start building a wrapper client with default middleware.
-    pub fn builder() -> ClientBuilder<NoopResponseMiddleware> {
+    pub fn builder() -> ClientBuilder<NoopReqwestMiddleware> {
         ClientBuilder::new()
     }
 }
 
 impl<MW> Client<MW>
 where
-    MW: ResponseMiddleware + Clone,
+    MW: ReqwestMiddleware + Clone,
 {
     /// Begin a GET request.
     pub fn get<U: reqwest::IntoUrl>(&self, url: U) -> RequestBuilder<MW> {
@@ -67,7 +67,7 @@ where
     }
 
     pub(crate) fn middleware(&self) -> &MW {
-        &self.response_middleware
+        &self.middleware
     }
 
     pub(crate) fn rate_limiter(&self) -> Option<Arc<governor::DefaultDirectRateLimiter>> {
@@ -78,22 +78,22 @@ where
 /// Builder for the wrapper client.
 pub struct ClientBuilder<MW> {
     inner: reqwest::ClientBuilder,
-    response_middleware: MW,
+    middleware: MW,
     rate_limiter: Option<Arc<governor::DefaultDirectRateLimiter>>,
 }
 
-impl Default for ClientBuilder<NoopResponseMiddleware> {
+impl Default for ClientBuilder<NoopReqwestMiddleware> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ClientBuilder<NoopResponseMiddleware> {
+impl ClientBuilder<NoopReqwestMiddleware> {
     /// Create a new builder with default middleware and no rate limiter.
     pub fn new() -> Self {
         Self {
             inner: reqwest::Client::builder(),
-            response_middleware: NoopResponseMiddleware,
+            middleware: NoopReqwestMiddleware,
             rate_limiter: None,
         }
     }
@@ -101,7 +101,7 @@ impl ClientBuilder<NoopResponseMiddleware> {
 
 impl<MW> ClientBuilder<MW>
 where
-    MW: ResponseMiddleware + Clone,
+    MW: ReqwestMiddleware + Clone,
 {
     /// Wrap an existing `reqwest::ClientBuilder`.
     ///
@@ -109,17 +109,17 @@ where
     ///
     /// ```no_run
     /// let base = reqwest::Client::builder().https_only(true);
-    /// let client = reqwest::ClientBuilder::from_reqwest_builder(
+    /// let client = reqwest_rate_limit::ClientBuilder::from_reqwest_builder(
     ///     base,
-    ///     reqwest::NoopResponseMiddleware,
+    ///     reqwest_rate_limit::NoopReqwestMiddleware,
     /// )
     /// .build()
     /// .unwrap();
     /// ```
-    pub fn from_reqwest_builder(inner: reqwest::ClientBuilder, response_middleware: MW) -> Self {
+    pub fn from_reqwest_builder(inner: reqwest::ClientBuilder, middleware: MW) -> Self {
         Self {
             inner,
-            response_middleware,
+            middleware,
             rate_limiter: None,
         }
     }
@@ -129,7 +129,7 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// let client = reqwest::Client::builder()
+    /// let client = reqwest_rate_limit::Client::builder()
     ///     .configure(|b| b.timeout(std::time::Duration::from_secs(5)))
     ///     .build()
     ///     .unwrap();
@@ -140,19 +140,19 @@ where
     {
         Self {
             inner: f(self.inner),
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: self.rate_limiter,
         }
     }
 
-    /// Replace the response middleware for this client.
-    pub fn response_middleware<NewMW>(self, response_middleware: NewMW) -> ClientBuilder<NewMW>
+    /// Replace the request middleware for this client.
+    pub fn middleware<NewMW>(self, middleware: NewMW) -> ClientBuilder<NewMW>
     where
-        NewMW: ResponseMiddleware + Clone,
+        NewMW: ReqwestMiddleware + Clone,
     {
         ClientBuilder {
             inner: self.inner,
-            response_middleware,
+            middleware,
             rate_limiter: self.rate_limiter,
         }
     }
@@ -170,7 +170,7 @@ where
     ///     NonZeroU32::new(60).unwrap(),
     /// )));
     ///
-    /// let client = reqwest::Client::builder()
+    /// let client = reqwest_rate_limit::Client::builder()
     ///     .rate_limiter(limiter)
     ///     .build()
     ///     .unwrap();
@@ -181,7 +181,7 @@ where
     ) -> ClientBuilder<MW> {
         ClientBuilder {
             inner: self.inner,
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: Some(rate_limiter),
         }
     }
@@ -194,7 +194,7 @@ where
     {
         Self {
             inner: self.inner.user_agent(value),
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: self.rate_limiter,
         }
     }
@@ -203,7 +203,7 @@ where
     pub fn default_headers(self, headers: reqwest::header::HeaderMap) -> Self {
         Self {
             inner: self.inner.default_headers(headers),
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: self.rate_limiter,
         }
     }
@@ -212,7 +212,7 @@ where
     pub fn timeout(self, timeout: std::time::Duration) -> Self {
         Self {
             inner: self.inner.timeout(timeout),
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: self.rate_limiter,
         }
     }
@@ -222,7 +222,7 @@ where
         let inner = self.inner.build()?;
         Ok(Client {
             inner,
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: self.rate_limiter,
         })
     }
@@ -231,7 +231,7 @@ where
     pub fn attach_client(self, client: reqwest::Client) -> Client<MW> {
         Client {
             inner: client,
-            response_middleware: self.response_middleware,
+            middleware: self.middleware,
             rate_limiter: self.rate_limiter,
         }
     }
