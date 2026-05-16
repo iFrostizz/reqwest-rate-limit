@@ -1,4 +1,4 @@
-use crate::{ResponseMiddleware, reqwest_wrapper::client::Client};
+use crate::{ReqwestMiddleware, reqwest_wrapper::client::Client};
 use governor::Jitter;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,25 +7,25 @@ use std::time::Duration;
 #[derive(Debug)]
 pub struct RequestBuilder<MW>
 where
-    MW: ResponseMiddleware + Clone,
+    MW: ReqwestMiddleware + Clone,
 {
     pub(crate) client: Client<MW>,
     pub(crate) inner: reqwest::RequestBuilder,
-    pub(crate) response_middleware: MW,
+    pub(crate) middleware: MW,
     pub(crate) rate_limiter: Option<Arc<governor::DefaultDirectRateLimiter>>,
 }
 
 impl<MW> RequestBuilder<MW>
 where
-    MW: ResponseMiddleware + Clone,
+    MW: ReqwestMiddleware + Clone,
 {
     pub(crate) fn from_parts(client: Client<MW>, inner: reqwest::RequestBuilder) -> Self {
-        let response_middleware = client.middleware().clone();
+        let middleware = client.middleware().clone();
         let rate_limiter = client.rate_limiter();
         Self {
             client,
             inner,
-            response_middleware,
+            middleware,
             rate_limiter,
         }
     }
@@ -172,20 +172,22 @@ where
     /// # Examples
     ///
     /// ```no_run
-    /// # async fn example() -> Result<(), reqwest::Error> {
-    /// let client = reqwest_rate_limit::Client::builder().build().unwrap();
+    /// # async fn example() -> reqwest::Result<()> {
+    /// let client = reqwest::Client::builder().build().unwrap();
     /// let _response = client.get("https://api.example.com/health").send().await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn send(self) -> Result<reqwest::Response, MW::Error> {
+        self.middleware.on_request(&self.inner).await?;
         if let Some(rate_limiter) = &self.rate_limiter {
+            // TODO configurable
             rate_limiter
-                .until_ready_with_jitter(Jitter::up_to(Duration::from_secs(20)))
+                .until_ready_with_jitter(Jitter::up_to(Duration::from_millis(50)))
                 .await;
         }
         let res = self.inner.send().await;
-        self.response_middleware.on_response(res)
+        self.middleware.on_response(res).await
     }
 
     /// Attempt to clone this builder for re-use.
@@ -194,7 +196,7 @@ where
         Some(Self {
             client: self.client.clone(),
             inner,
-            response_middleware: self.response_middleware.clone(),
+            middleware: self.middleware.clone(),
             rate_limiter: None, // rate limiters aren't cloneable
         })
     }

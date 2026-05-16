@@ -71,9 +71,11 @@ pub use governor;
 /// Wrapper client that layers rate limiting and middleware hooks over `reqwest`.
 pub use reqwest_wrapper::{Client, ClientBuilder, RequestBuilder};
 
-/// Intercept a response to apply rate-limit aware behavior.
-pub trait ResponseMiddleware {
+/// Intercept a request / response to apply rate-limit aware behavior.
+pub trait ReqwestMiddleware {
     type Error;
+
+    async fn on_request(&self, request: &reqwest::RequestBuilder) -> Result<(), Self::Error>;
 
     /// Inspect or transform the `reqwest` response.
     ///
@@ -82,10 +84,14 @@ pub trait ResponseMiddleware {
     /// ```no_run
     /// struct Passthrough;
     ///
-    /// impl reqwest_rate_limit::ResponseMiddleware for Passthrough {
+    /// impl reqwest_rate_limit::ReqwestMiddleware for Passthrough {
     ///     type Error = reqwest::Error;
     ///
-    ///     fn on_response(
+    ///     async fn on_request(&self, request: &reqwest::RequestBuilder) -> Result<(), Self::Error> {
+    ///         todo!()
+    ///     }
+    ///
+    ///     async fn on_response(
     ///         &self,
     ///         response: reqwest::Result<reqwest::Response>,
     ///     ) -> Result<reqwest::Response, Self::Error> {
@@ -93,20 +99,25 @@ pub trait ResponseMiddleware {
     ///     }
     /// }
     /// ```
-    fn on_response(
+    async fn on_response(
         &self,
         response: reqwest::Result<reqwest::Response>,
     ) -> Result<reqwest::Response, Self::Error>;
 }
 
 /// Default middleware that returns the response unchanged.
-#[derive(Clone, Default)]
-pub struct NoopResponseMiddleware;
+#[derive(Debug, Clone, Default)]
+pub struct NoopReqwestMiddleware;
 
-impl ResponseMiddleware for NoopResponseMiddleware {
+impl ReqwestMiddleware for NoopReqwestMiddleware {
     type Error = reqwest::Error;
 
-    fn on_response(
+    async fn on_request(&self, request: &reqwest::RequestBuilder) -> Result<(), Self::Error> {
+        let _ = request;
+        Ok(())
+    }
+
+    async fn on_response(
         &self,
         response: reqwest::Result<reqwest::Response>,
     ) -> Result<reqwest::Response, Self::Error> {
@@ -148,10 +159,14 @@ pub async fn send_with_rate_limiter(
 ///
 /// struct Passthrough;
 ///
-/// impl reqwest_rate_limit::ResponseMiddleware for Passthrough {
+/// impl reqwest_rate_limit::ReqwestMiddleware for Passthrough {
 ///     type Error = reqwest::Error;
 ///
-///     fn on_response(
+///     async fn on_request(&self, _request: &reqwest::RequestBuilder) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
+///
+///     async fn on_response(
 ///         &self,
 ///         response: reqwest::Result<reqwest::Response>,
 ///     ) -> Result<reqwest::Response, Self::Error> {
@@ -176,8 +191,8 @@ pub async fn send_with_rate_limiter_and_middleware<MW>(
     middleware: &MW,
 ) -> Result<reqwest::Response, MW::Error>
 where
-    MW: ResponseMiddleware,
+    MW: ReqwestMiddleware,
 {
     let response = send_with_rate_limiter(request, rate_limiter).await;
-    middleware.on_response(response)
+    middleware.on_response(response).await
 }
